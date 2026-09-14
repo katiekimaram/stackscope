@@ -109,7 +109,7 @@ npx playwright install chromium
 npm run test:ui
 ~~~
 
-CI generates the initial lockfile on the initial feature branch, validates that exact revision, runs parser/service/browser checks, and builds an unsigned Windows installer. After bootstrap, installs use npm ci.
+CI generates the initial lockfile on the initial feature branch, validates that exact revision, runs parser/service/browser checks, builds an unsigned Windows installer, and launches Electron to verify its parser worker and renderer isolation. After bootstrap, installs use npm ci.
 
 Host dist/ on HTTPS for local-only analysis. Connected features need /api reverse-proxied to the Node service, APP_ORIGIN set to the website origin, and persistent private SQLite storage. The service binds loopback by default and does not serve static files. Set HOST explicitly for private container networks. Electron can use STACKSCOPE_SERVICE_URL for an HTTPS service.
 

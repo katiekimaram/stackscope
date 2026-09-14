@@ -110,7 +110,7 @@ export default function App() {
       <p className="muted">Redaction is best effort. Review filenames, paths, identifiers, and evidence before sharing. Original full logs are not included.</p>
       <textarea className="export-preview" readOnly value={exportText} aria-label="Report export preview" />
       {exportStatus&&<p role="status" className="notice">{exportStatus}</p>}
-      <div className="button-row"><button className="primary" onClick={downloadReport}>Download JSON</button><button disabled={!session?.user.pro||busy} onClick={async()=>{setBusy(true);try{await api('/api/cases',{method:'POST',token:session!.token,body:{title,report:JSON.parse(exportText)}});setExportStatus('Report saved to your hosted account.');}catch(error){setExportStatus(error instanceof Error?error.message:'Save failed.');}finally{setBusy(false);}}}>Save hosted case (Pro)</button><button onClick={()=>setExportOpen(false)}>Close</button></div>
+      <div className="button-row"><button className="primary" onClick={downloadReport}>Download JSON</button><button disabled={!session?.user.pro||busy} onClick={async()=>{setBusy(true);try{await api('/api/cases',{method:'POST',token:session!.token,body:{title:JSON.parse(exportText).caseTitle,report:JSON.parse(exportText)}});setExportStatus('Report saved to your hosted account.');}catch(error){setExportStatus(error instanceof Error?error.message:'Save failed.');}finally{setBusy(false);}}}>Save hosted case (Pro)</button><button onClick={()=>setExportOpen(false)}>Close</button></div>
     </section></div>}
   </div>;
 }

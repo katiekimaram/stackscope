@@ -74,6 +74,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run desktop:dist -- --win nsis --publish never
+      - name: Launch Electron and verify local import
+        run: node tests/electron.smoke.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: stackscope-windows-preview
