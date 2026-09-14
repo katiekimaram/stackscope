@@ -66,3 +66,16 @@ test('hosted save transmits the reviewed redacted title and report',async({page}
  expect(uploaded.report).toEqual(preview);
  expect(JSON.stringify(uploaded)).not.toContain('alice@example.com');
 });
+
+test('large log import reaches end-of-file findings and opens the matching source line', async ({page}) => {
+ await page.goto('/');
+ const log=('INFO routine background operation '.repeat(3)+'\n').repeat(125000)+'[SR] Cannot repair member file final-entry.dll\n';
+ await page.getByLabel('Diagnostic files').setInputFiles({name:'CBS.log',mimeType:'text/plain',buffer:Buffer.from(log)});
+ await expect(page.getByRole('heading',{name:'System-file corruption reported'})).toBeVisible({timeout:30000});
+ await page.getByText('Source evidence',{exact:true}).click();
+ await page.getByRole('button',{name:/CBS.log · Line 125001/}).click();
+ await expect(page.getByRole('region',{name:'Source log lines'})).toContainText('final-entry.dll');
+ await expect(page.locator('.log-line.highlight')).toContainText('125001');
+ await page.getByLabel('Search source lines').fill('final-entry.dll');
+ await expect(page.locator('.log-line')).toHaveCount(1);
+});

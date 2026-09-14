@@ -1,6 +1,6 @@
 {
   "name": "stackscope",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Local-first system diagnostic analysis for web and Electron.",
@@ -44,24 +44,34 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "shared/**/*"
     ],
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "electron/assets/icon.ico"
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "electron/assets/icon.icns"
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "category": "Development"
+      "category": "Development",
+      "icon": "electron/assets/icon.png"
+    },
+    "artifactName": "StackScope-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "shortcutName": "StackScope",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

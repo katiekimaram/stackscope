@@ -1,7 +1,6 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
-export const MAX_CASE_BYTES = 40 * 1024 * 1024;
-export const MAX_FILES = 12;
+import { MAX_FILE_BYTES, MAX_STRUCTURED_BYTES } from '../shared/limits.mjs';
+export { MAX_FILE_BYTES, MAX_CASE_BYTES, MAX_FILES } from '../shared/limits.mjs';
 const MAX_RECORDS = 12000;
 const hardwareKeys = /^(processor|cpu|memory|installed physical memory.*|total physical memory|available physical memory|bios.*|baseboard.*|system manufacturer|system model|card name|chip type|display memory.*|dedicated memory|driver version|driver date.*|disk.*|model|capacity|size|resolution|manufacturer|serial number|hardware uuid)$/i;
 const systemKeys = /^(os name|os version|operating system|version|system type|directx version|machine name|system name|windows dir|page file|time of this report|kernel version|boot volume)$/i;
@@ -19,7 +18,7 @@ function descendants(nodes, name, out = []) {
 }
 export function decodeDiagnostic(buffer) {
   const b = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  if (b.byteLength > MAX_FILE_BYTES) throw new Error('File exceeds the 10 MiB import limit.');
+  if (b.byteLength > MAX_FILE_BYTES) throw new Error('File exceeds the 1 GiB import limit.');
   if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le', { fatal: true }).decode(b.subarray(2));
   if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be', { fatal: true }).decode(b.subarray(2));
   if (b.length > 8 && b[1] === 0 && b[3] === 0) return new TextDecoder('utf-16le', { fatal: true }).decode(b);
@@ -29,15 +28,16 @@ export function decodeDiagnostic(buffer) {
 }
 export function parseDiagnostic(input) {
   const name = text(input.name).slice(0, 240) || 'Untitled report', id = text(input.id) || name;
-  const content = text(input.text).replace(/^\uFEFF/, '');
+  let content = String(input.text ?? '').replace(/^\uFEFF/, '');
   if (!content) throw new Error('The file is empty.');
-  if (content.length > MAX_FILE_BYTES || new TextEncoder().encode(content).length > MAX_FILE_BYTES) throw new Error('File exceeds the 10 MiB import limit.');
+  if (content.length > MAX_FILE_BYTES || new TextEncoder().encode(content).length > MAX_FILE_BYTES) throw new Error('File exceeds the 1 GiB import limit.');
   if (/\0/.test(content) || /\.(evtx|etl|dmp|mdmp|zip|cab)$/i.test(name) || content.startsWith('bplist')) throw new Error('Binary reports are not yet supported. Export EVTX to XML, traces to text/CSV, or use debugger text output.');
-  const lines = content.split(/\r?\n/);
-  if (lines.length > 120000) throw new Error('Report has too many lines. Import a smaller time range.');
-  const result = { id, name, format: 'Text log', records: [], processes: [], findings: [], warnings: [], lineCount: lines.length };
+  let lines = content.split(/\r?\n/);
+  let lineOffset = 0, processCount = lines.length;
+  let section = 'System summary';
+  const result = { id, name, format: 'Text log', records: [], processes: [], findings: [], warnings: [], lineCount: input._stream ? 0 : lines.length };
   const recordKeys = new Set(), processKeys = new Set(), findingKeys = new Map();
-  const evidence = (locator, excerpt) => ({ sourceId: id, source: name, locator, excerpt: text(excerpt).slice(0, 1400) });
+  const evidence = (locator, excerpt) => ({ sourceId: id, source: name, locator: locator.replace(/^Line (\d+)/, (_, n) => 'Line ' + (Number(n) + lineOffset)), excerpt: text(excerpt).slice(0, 1400) });
   function record(kind, category, label, value, locator) {
     value = text(value);
     if (!value || result.records.length >= MAX_RECORDS) return;
@@ -71,8 +71,8 @@ export function parseDiagnostic(input) {
     return /software|application|program|running task|process|startup|service/i.test(section) ? 'software' : 'system';
   }
   function textInventory() {
-    let section = 'System summary';
     lines.forEach((raw, i) => {
+      if (i >= processCount) return;
       const line = raw.trim();
       if (/^\[[^\]]+\]$/.test(line)) { section = line.slice(1, -1); return; }
       if (/^(System Information|Display Devices|Sound Devices|Disk & DVD\/CD-ROM Drives|System Devices|Running Tasks|Startup Programs|Services)$/i.test(line)) { section = line; return; }
@@ -87,14 +87,64 @@ export function parseDiagnostic(input) {
       }
     });
   }
-  if (content.startsWith('<')) {
+  function consumeText(chunk, offset = 0, count) {
+    content = chunk;
+    lines = chunk.split(/\r?\n/);
+    lineOffset = offset;
+    processCount = count ?? lines.length;
+    result.lineCount = Math.max(result.lineCount, offset + processCount);
+    if (/dxdiag/i.test(name) || /DirectX Version:/.test(content)) result.format = 'DXDIAG text';
+    else if (/msinfo|\.nfo$/i.test(name) || /OS Name\t|System Manufacturer\t/.test(content)) result.format = 'MSINFO text';
+    else if (/\.wer$/i.test(name) || /^EventType=APPCRASH/m.test(content)) result.format = 'Windows Error Reporting';
+    else if (/CBS|CSI.*\[SR\]/i.test(content) || /cbs|dism/i.test(name)) result.format = /dism/i.test(name) ? 'DISM log' : 'CBS log';
+    if (['MSINFO text','DXDIAG text'].includes(result.format)) textInventory();
+    if (result.format === 'Windows Error Reporting') {
+      const values = Object.fromEntries(lines.map(l => { const k = l.indexOf('='); return k > 0 ? [l.slice(0,k),l.slice(k+1)] : []; }).filter(v => v.length));
+      if (values.AppName || values.AppPath) process(values.AppName ?? values.AppPath.split('\\').at(-1),values.AppPath ?? '','','','WER AppName / AppPath');
+      finding('wer-report','Windows error report: ' + (values.EventType ?? 'unclassified'),'medium','high',
+        'This is a recorded incident. Faulting modules and exception information are clues, not a confirmed cause.',
+        'Compare the report timestamp, application version, exception code, and matching events.','WER fields',
+        lines.filter(l => /^(EventType|AppName|AppPath|Sig\[\d+\]\.(Name|Value))=/.test(l)).join('\n'));
+    }
+    lines.forEach((line,i) => {
+      if (i >= processCount) return;
+      const loc = 'Line ' + (i + 1);
+      if (/\[SR\].*Cannot repair member file/i.test(line)) finding('cbs-corruption','System-file corruption reported','medium','high',
+        'An SFC entry reports a file that could not be repaired at that point. Later repair activity may have resolved it.',
+        'Check this scan’s completion and later scans before treating the corruption as current.',loc,line);
+      else if (/HRESULT.*0x800f081f|error\s*:\s*0x800f081f|CBS_E_SOURCE_MISSING/i.test(line)) finding('repair-source-missing','Repair source was unavailable','medium','high',
+        'A servicing operation reports missing repair source files. This is historical evidence, not current system health.',
+        'Check the operation timestamp, completion status, Windows build, and configured repair source.',loc,line);
+      else if (/Unhandled (?:exception|rejection)|Traceback \(most recent call last\)|FATAL EXCEPTION|^Caused by:\s+\S+|^panic:/i.test(line)) finding('stacktrace','Exception or stack trace recorded','medium','high',
+        'Stack frames show the execution path and may require symbols or source maps for useful attribution.',
+        'Inspect the exception message and first relevant application frame; compare matching incidents.',loc,
+        lines.slice(Math.max(0,i-1),i+12).join('\n'),'stack:' + line.trim().slice(0,160));
+      else if (/\b(error|failed|failure|fatal)\b/i.test(line) && !/\b(no errors?|0 errors?|errors?\s*[:=]\s*0|failed\s*[:=]\s*0|failure\s*[:=]\s*0|success(?:ful(?:ly)?)?)\b/i.test(line) &&
+        !/\[SR\]|^Sig\[\d+\]\.Name=|^EventType=/i.test(line) && (/\b0x[89a-f][0-9a-f]{7}\b/i.test(line) || /\bERROR\b.*\S/i.test(line))) finding('log-error','Error entry requires context','low','medium',
+        'A single error line does not establish severity or a current fault.','Review nearby entries, the timestamp, and whether a later operation succeeded.',loc,line,
+        'error:' + (line.match(/0x[89a-f][0-9a-f]{7}/i)?.[0] ?? line.replace(/\d+/g,'#').slice(0,140)));
+    });
+
+  }
+
+  function finish() {
+  if (result.records.length >= MAX_RECORDS || result.processes.length >= MAX_RECORDS) result.warnings.push('Inventory reached the 12,000-entry limit; import a smaller report for complete coverage.');
+  if (result.findings.length >= 500) result.warnings.push('Finding groups reached the 500-group limit.');
+  if (!result.records.length && !result.processes.length && !result.findings.length) result.warnings.push('No supported patterns found. This does not mean the machine is healthy or free of malware.');
+  const order = { high:0,medium:1,low:2,info:3 };
+  result.findings.sort((a,b) => order[a.severity] - order[b.severity]);
+  return result;
+  }
+  if (input._stream) return { consume: consumeText, finish };
+  if (content.trimStart().startsWith('<')) {
+    if (new TextEncoder().encode(content).length > MAX_STRUCTURED_BYTES) throw new Error('Structured XML reports support up to 128 MiB. Text logs support up to 1 GiB.');
     const safe = content.replace(/<!DOCTYPE\s+plist\s+PUBLIC\s+"-\/\/Apple\/\/DTD PLIST 1\.0\/\/EN"\s+"https?:\/\/www\.apple\.com\/DTDs\/PropertyList-1\.0\.dtd"\s*>/i, '');
     if (/<!DOCTYPE|<!ENTITY/i.test(safe)) throw new Error('XML DTDs and entity declarations are unsupported.');
     let depth = 0, count = 0;
     for (const m of safe.matchAll(/<[^>]*>/g)) {
       if (/^<\//.test(m[0])) depth--;
       else if (!/^<[!?]/.test(m[0]) && !/\/>$/.test(m[0])) depth++;
-      if (depth > 96 || ++count > 120000) throw new Error('XML report exceeds parser complexity limits.');
+      if (depth > 96 || ++count > 2000000) throw new Error('XML report exceeds parser complexity limits.');
     }
     if (XMLValidator.validate(safe) !== true) throw new Error('Malformed XML report.');
     const tree = new XMLParser({ preserveOrder: true, ignoreAttributes: false, parseTagValue: false, parseAttributeValue: false, trimValues: true, processEntities: true }).parse(safe);
@@ -178,6 +228,17 @@ export function parseDiagnostic(input) {
           [time,provider,'Event ' + eventId,message].join(' · '), provider + ':' + eventId + ':' + message.slice(0,150));
       });
     } else result.warnings.push('Valid XML, but this schema is unsupported. No inventory or diagnosis was inferred.');
+  } else if (/\.json$/i.test(name) && content.trimStart().startsWith('{')) {
+    const snapshot = JSON.parse(content);
+    if (snapshot.schema !== 'stackscope.snapshot.v1') throw new Error('Unsupported JSON. Import a StackScope computer snapshot or a text diagnostic report.');
+    result.format = 'Computer snapshot';
+    for (const [i, item] of (Array.isArray(snapshot.records) ? snapshot.records : []).entries()) {
+      if (['hardware', 'software', 'system'].includes(item.kind)) record(item.kind, text(item.category), text(item.label), item.value, '/records/' + i);
+    }
+    for (const [i, item] of (Array.isArray(snapshot.processes) ? snapshot.processes : []).entries()) {
+      process(item.name, item.path, item.publisher, item.version, '/processes/' + i, { pid: text(item.pid), memoryMB: Number.isFinite(item.memoryMB) ? item.memoryMB : null, measuredAt: text(snapshot.collectedAt) });
+    }
+    for (const warning of (Array.isArray(snapshot.warnings) ? snapshot.warnings : []).slice(0, 100)) result.warnings.push(text(warning).slice(0, 1000));
   } else if (/\.csv$/i.test(name)) {
     result.format = 'Performance CSV';
     const rows = parseCSV(content), headers = rows.shift()?.map(h => h.trim().toLowerCase()) ?? [];
@@ -194,44 +255,10 @@ export function parseDiagnostic(input) {
         'The sample reports ' + cpu + '% CPU across ' + seconds + ' seconds. High utilization can be expected during demanding work and does not establish causation.',
         'Compare process use, workload, and responsiveness during the same interval.','CSV row ' + (i + 2),row.join(', '),'cpu:' + field('name') + ':' + field('pid'));
     });
-  } else {
-    if (/dxdiag/i.test(name) || /DirectX Version:/.test(content)) result.format = 'DXDIAG text';
-    else if (/msinfo|\.nfo$/i.test(name) || /OS Name\t|System Manufacturer\t/.test(content)) result.format = 'MSINFO text';
-    else if (/\.wer$/i.test(name) || /^EventType=APPCRASH/m.test(content)) result.format = 'Windows Error Reporting';
-    else if (/CBS|CSI.*\[SR\]/i.test(content) || /cbs|dism/i.test(name)) result.format = /dism/i.test(name) ? 'DISM log' : 'CBS log';
-    if (['MSINFO text','DXDIAG text'].includes(result.format)) textInventory();
-    if (result.format === 'Windows Error Reporting') {
-      const values = Object.fromEntries(lines.map(l => { const k = l.indexOf('='); return k > 0 ? [l.slice(0,k),l.slice(k+1)] : []; }).filter(v => v.length));
-      if (values.AppName || values.AppPath) process(values.AppName ?? values.AppPath.split('\\').at(-1),values.AppPath ?? '','','','WER AppName / AppPath');
-      finding('wer-report','Windows error report: ' + (values.EventType ?? 'unclassified'),'medium','high',
-        'This is a recorded incident. Faulting modules and exception information are clues, not a confirmed cause.',
-        'Compare the report timestamp, application version, exception code, and matching events.','WER fields',
-        lines.filter(l => /^(EventType|AppName|AppPath|Sig\[\d+\]\.(Name|Value))=/.test(l)).join('\n'));
-    }
-    lines.forEach((line,i) => {
-      const loc = 'Line ' + (i + 1);
-      if (/\[SR\].*Cannot repair member file/i.test(line)) finding('cbs-corruption','System-file corruption reported','medium','high',
-        'An SFC entry reports a file that could not be repaired at that point. Later repair activity may have resolved it.',
-        'Check this scan’s completion and later scans before treating the corruption as current.',loc,line);
-      else if (/HRESULT.*0x800f081f|error\s*:\s*0x800f081f|CBS_E_SOURCE_MISSING/i.test(line)) finding('repair-source-missing','Repair source was unavailable','medium','high',
-        'A servicing operation reports missing repair source files. This is historical evidence, not current system health.',
-        'Check the operation timestamp, completion status, Windows build, and configured repair source.',loc,line);
-      else if (/Unhandled (?:exception|rejection)|Traceback \(most recent call last\)|FATAL EXCEPTION|^Caused by:\s+\S+|^panic:/i.test(line)) finding('stacktrace','Exception or stack trace recorded','medium','high',
-        'Stack frames show the execution path and may require symbols or source maps for useful attribution.',
-        'Inspect the exception message and first relevant application frame; compare matching incidents.',loc,
-        lines.slice(Math.max(0,i-1),i+12).join('\n'),'stack:' + line.trim().slice(0,160));
-      else if (/\b(error|failed|failure|fatal)\b/i.test(line) && !/\b(no errors?|0 errors?|errors?\s*[:=]\s*0|failed\s*[:=]\s*0|failure\s*[:=]\s*0|success(?:ful(?:ly)?)?)\b/i.test(line) &&
-        !/\[SR\]|^Sig\[\d+\]\.Name=|^EventType=/i.test(line) && (/\b0x[89a-f][0-9a-f]{7}\b/i.test(line) || /\bERROR\b.*\S/i.test(line))) finding('log-error','Error entry requires context','low','medium',
-        'A single error line does not establish severity or a current fault.','Review nearby entries, the timestamp, and whether a later operation succeeded.',loc,line,
-        'error:' + (line.match(/0x[89a-f][0-9a-f]{7}/i)?.[0] ?? line.replace(/\d+/g,'#').slice(0,140)));
-    });
-  }
-  if (result.records.length >= MAX_RECORDS || result.processes.length >= MAX_RECORDS) result.warnings.push('Inventory reached the 12,000-entry limit; import a smaller report for complete coverage.');
-  if (result.findings.length >= 500) result.warnings.push('Finding groups reached the 500-group limit.');
-  if (!result.records.length && !result.processes.length && !result.findings.length) result.warnings.push('No supported patterns found. This does not mean the machine is healthy or free of malware.');
-  const order = { high:0,medium:1,low:2,info:3 };
-  result.findings.sort((a,b) => order[a.severity] - order[b.severity]);
-  return result;
+  } else consumeText(content);
+
+  return finish();
+
 }
 export function parseCSV(input) {
   const rows = []; let row = [], value = '', quoted = false;
@@ -260,4 +287,8 @@ export function redactReport(value) {
     return out;
   }
   return value;
+}
+
+export function createTextAnalysis(name, id) {
+  return parseDiagnostic({ name, id, text: '[stream]', _stream: true });
 }

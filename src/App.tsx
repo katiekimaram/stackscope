@@ -1,10 +1,12 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MAX_CASE_BYTES, MAX_FILE_BYTES, MAX_FILES, redactReport } from './engine.mjs';
 import { importFile } from './import';
+import SourceViewer from './SourceViewer';
+import DesktopControls from './DesktopControls';
 import { samples } from './samples';
 import { api } from './api';
 import ServicePanel, { type Session } from './ServicePanel';
-import type { Source, Evidence, Finding } from './types';
+import type { Source, Evidence, Finding, CollectionOptions } from './types';
 
 type View='overview'|'hardware'|'software'|'findings'|'logs'|'community'|'account';
 const views: [View,string,string][]=[['overview','Overview','◫'],['hardware','Hardware','▦'],['software','Software & processes','▤'],['findings','Findings','◇'],['logs','Source logs','≡'],['community','Community','◎'],['account','Account & plans','⊞']];
@@ -25,7 +27,9 @@ export default function App() {
   const [theme,setTheme]=useState('dark'),[isDemo,setIsDemo]=useState(false),[session,setSession]=useState<Session|null>(null);
   const [exportOpen,setExportOpen]=useState(false),[redact,setRedact]=useState(true),[title,setTitle]=useState('Diagnostic case'),[exportStatus,setExportStatus]=useState('');
   const [logStart,setLogStart]=useState(0),[focusLine,setFocusLine]=useState(0),[logQuery,setLogQuery]=useState('');
-  const [rowLimit,setRowLimit]=useState(200);
+  const [rowLimit,setRowLimit]=useState(200),[progress,setProgress]=useState('');
+  const operation=useRef<AbortController|null>(null);
+  useEffect(()=>window.stackscope?.onDesktopEvent(event=>{if(event.type==='progress')setProgress(event.message??'Collecting diagnostics…');if(event.type==='open-collection')setView('overview');}),[]);
   const input=useRef<HTMLInputElement>(null),inFlight=useRef(false);
   const selected=sources.filter(s=>sourceId==='all'||s.id===sourceId);
   const matches=(value:unknown)=>JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
@@ -35,23 +39,40 @@ export default function App() {
   const visibleRecords=records.filter(r=>(view==='hardware'?r.kind!=='software':r.kind==='software')&&matches(r));
   const visibleProcesses=processes.filter(matches);
   const report=useMemo(()=>({schemaVersion:1,application:'StackScope',caseTitle:title,syntheticDemo:isDemo,exportedAt:new Date().toISOString(),redaction:redact?'Common identifiers removed; manual review still required.':'Identifiers retained by user choice.',sources:sources.map(s=>s.report)}),[sources,title,isDemo,redact]);
-  const exportText=JSON.stringify(redact?redactReport(report):report,null,2);
+  const exportText=useMemo(()=>exportOpen?JSON.stringify(redact?redactReport(report):report,null,2):'',[report,redact,exportOpen]);
   const currentLog=sources.find(s=>s.id===sourceId)??sources[0];
-  const logLines=(currentLog?.text.split(/\r?\n/)??[]).map((text,index)=>({text,line:index+1})).filter(l=>!logQuery||l.text.toLowerCase().includes(logQuery.toLowerCase()));
   function navigate(next:View){setView(next);setQuery('');setRowLimit(200);}
-  async function importFiles(files: File[], demo=false) {
+  async function importFiles(files: File[], demo=false, notices: string[]=[], controller=new AbortController()) {
     if(inFlight.current)return;
     if(!files.length)return;
     const base=demo?[]:sources;
-    if(base.length+files.length>MAX_FILES){setErrors(['A case can contain at most 12 files. Clear the case or select fewer files.']);return;}
-    if(files.some(f=>f.size>MAX_FILE_BYTES)){setErrors(['Each file must be 10 MiB or smaller. Export a smaller time range.']);return;}
-    if(base.reduce((sum,s)=>sum+s.bytes,0)+files.reduce((sum,f)=>sum+f.size,0)>MAX_CASE_BYTES){setErrors(['The case exceeds the 40 MiB import limit.']);return;}
-    inFlight.current=true;setBusy(true);setErrors([]);
-    const added:Source[]=[],failures:string[]=[];
-    for(const file of files){try{added.push(await importFile(file));}catch(error){failures.push(error instanceof Error?error.message:'Import failed.');}}
+    if(base.length+files.length>MAX_FILES){setErrors(['A case can contain at most 24 files. Clear the case or select fewer files.']);return;}
+    if(files.some(f=>f.size>MAX_FILE_BYTES)){setErrors(['Each file must be 1 GiB or smaller.']);return;}
+    if(base.reduce((sum,s)=>sum+s.bytes,0)+files.reduce((sum,f)=>sum+f.size,0)>MAX_CASE_BYTES){setErrors(['The case exceeds the 2 GiB import limit.']);return;}
+    inFlight.current=true;operation.current=controller;setBusy(true);setErrors([]);
+    const added:Source[]=[],failures:string[]=[...notices];
+    for(const file of files){if(controller.signal.aborted)break;try{added.push(await importFile(file,controller.signal,percent=>setProgress(file.name+' · '+percent+'% read')));}catch(error){failures.push(error instanceof Error?error.message:'Import failed.');}}
     setSources([...base,...added]);setErrors(failures);setIsDemo(demo||(isDemo&&base.length>0));setSourceId('all');setLogStart(0);
-    setBusy(false);inFlight.current=false;setView('overview');
+    setBusy(false);operation.current=null;inFlight.current=false;setView('overview');
   }
+  async function collectComputer(options: CollectionOptions) {
+    if(inFlight.current||!window.stackscope)return;
+    const controller=new AbortController();operation.current=controller;inFlight.current=true;setBusy(true);setErrors([]);setProgress('Starting collection…');
+    try {
+      const result=await window.stackscope.collect(options);
+      const files:File[]=[];
+      for(const item of result.files){
+        setProgress('Preparing '+item.name+' for analysis…');
+        const response=await fetch(item.url,{signal:controller.signal});
+        if(!response.ok)throw new Error(item.name+': could not read collected report.');
+        files.push(new File([await response.blob()],item.name));
+      }
+      inFlight.current=false;
+      await importFiles(files,false,result.warnings,controller);
+    } catch(error){setErrors([controller.signal.aborted?'Collection cancelled.':error instanceof Error?error.message:'Collection failed.']);}
+    finally {await window.stackscope.releaseCollection().catch(()=>{});setBusy(false);operation.current=null;inFlight.current=false;}
+  }
+  function cancelOperation(){operation.current?.abort();void window.stackscope?.cancelCollection();}
   function openEvidence(e:Evidence) {
     setSourceId(e.sourceId);setView('logs');setLogQuery('');
     const line=Number(e.locator.match(/^Line (\d+)/)?.[1]??0);setFocusLine(line);setLogStart(line?Math.floor((line-1)/500)*500:0);
@@ -65,20 +86,21 @@ export default function App() {
     <a className="skip-link" href="#main">Skip to workspace</a>
     <aside className="sidebar"><a href="#" className="brand" onClick={e=>{e.preventDefault();navigate('overview');}}><span className="brand-mark">S</span><span>Stack<span className="brand-light">Scope</span><small>DIAGNOSTIC WORKSPACE</small></span></a>
       <p className="nav-label">WORKSPACE</p><nav aria-label="Workspace">{views.map(([key,label,icon])=><button className={'nav-item '+(view===key?'active':'')} key={key} aria-current={view===key?'page':undefined} onClick={()=>navigate(key)}><span aria-hidden="true">{icon}</span>{label}{key==='findings'&&findings.length>0&&<b>{findings.length}</b>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="local-status"><span className="status-dot"/>Analysis stays local</div><p>Files stay in this session until you export or explicitly save a hosted report.</p><div className="sidebar-version"><span>v0.1 · Early preview</span><button aria-label="Toggle color theme" onClick={()=>{const next=theme==='dark'?'light':'dark';setTheme(next);document.documentElement.dataset.theme=next;}}>{theme==='dark'?'Light':'Dark'}</button></div></div>
+      <div className="sidebar-bottom"><div className="local-status"><span className="status-dot"/>Analysis stays local</div><p>Files stay in this session until you export or explicitly save a hosted report.</p><div className="sidebar-version"><span>v0.2 · Early preview</span><button aria-label="Toggle color theme" onClick={()=>{const next=theme==='dark'?'light':'dark';setTheme(next);document.documentElement.dataset.theme=next;}}>{theme==='dark'?'Light':'Dark'}</button></div></div>
     </aside>
     <div className="workspace"><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{heading}</strong></div><div className="button-row"><span className="platform-label">{window.stackscope?'Desktop':'Web'} · {session?.user.pro?'Pro':'Personal'}</span><button onClick={()=>navigate('account')}>{session?.user.username??'Sign in'}</button></div></header>
       <main id="main">
         {!['community','account'].includes(view)&&<><div className="page-heading"><div><p className="eyebrow">FOLLOW THE EVIDENCE</p><h1>{view==='overview'?'Diagnostic overview':heading}</h1><p>{view==='overview'?'Bring your reports together. Find the details that deserve a closer look.':'Inspect the information extracted from your imported reports.'}</p></div><div className="button-row"><button disabled={!sources.length||busy} onClick={()=>{setExportOpen(true);setExportStatus('');}}>Export report</button><button className="primary" disabled={busy} onClick={()=>input.current?.click()}><span aria-hidden="true">＋</span> Import files</button></div></div>
-        <input className="visually-hidden" ref={input} type="file" multiple accept=".txt,.log,.nfo,.xml,.spx,.wer,.csv,.ips,.crash,.stacktrace" onChange={e=>{void importFiles(Array.from(e.target.files??[]));e.target.value='';}} aria-label="Diagnostic files" />
+        <input className="visually-hidden" ref={input} type="file" multiple accept=".txt,.log,.nfo,.xml,.spx,.wer,.csv,.ips,.crash,.stacktrace,.json" onChange={e=>{void importFiles(Array.from(e.target.files??[]));e.target.value='';}} aria-label="Diagnostic files" />
         {errors.length>0&&<div className="notice" role="alert">{errors.map((e,i)=><p key={i}>{e}</p>)}<button onClick={()=>setErrors([])}>Dismiss</button></div>}
-        {busy&&<p className="notice neutral" role="status">Reading and analyzing files on your device…</p>}
+        {busy&&<div className="notice neutral" role="status"><p>{progress||'Working…'}</p>{operation.current&&<button onClick={cancelOperation}>Cancel</button>}</div>}
         {isDemo&&<p className="demo-banner">SAMPLE CASE · Synthetic reports, not measurements from your computer.<button disabled={busy} onClick={()=>{setSources([]);setIsDemo(false);setSourceId('all');}}>Clear sample</button></p>}
         {sources.length>0&&<div className="toolbar"><label className="search-field"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search findings, components, or processes…" value={query} onChange={e=>{setQuery(e.target.value);setRowLimit(200);}} aria-label="Search workspace" /></label><label className="source-filter"><span>Source</span><select aria-label="Filter by source" value={sourceId} onChange={e=>{setSourceId(e.target.value);setLogStart(0);setRowLimit(200);}}><option value="all">All reports ({sources.length})</option>{sources.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></label></div>}
         </>}
+        <div hidden={view!=='overview'}><DesktopControls busy={busy} collect={options=>void collectComputer(options)}/></div>
         {view==='overview'&&<>
           <section className={'import-zone '+(sources.length?'compact':'')} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void importFiles(Array.from(e.dataTransfer.files));}}>
-            <div className="import-icon" aria-hidden="true">↥</div><div><h2>{sources.length?'Add another report':'Start with a diagnostic report'}</h2><p>Drop MSINFO, DXDIAG, SPX, CBS, WER, event XML, performance CSV, or text logs here.</p><p className="muted">Up to 12 files · 10 MiB per file · Parsed locally</p></div><button disabled={busy} onClick={()=>input.current?.click()}>Browse files</button>
+            <div className="import-icon" aria-hidden="true">↥</div><div><h2>{sources.length?'Add another report':'Start with a diagnostic report'}</h2><p>Drop MSINFO, DXDIAG, SPX, CBS, WER, event XML, performance CSV, or text logs here.</p><p className="muted">24 files · Text logs up to 1 GiB · XML / JSON / CSV / WER up to 128 MiB · 2 GiB per case</p></div><button disabled={busy} onClick={()=>input.current?.click()}>Browse files</button>
           </section>
           {!sources.length?<section className="empty-start"><div><p className="eyebrow">NO REPORTS IMPORTED</p><h2>Your investigation starts here.</h2><p>Import reports to inspect hardware, identify software, and explore errors with their original context.</p><button className="primary" disabled={busy} onClick={()=>void importFiles(samples.map(s=>new File([s.text],s.name,{type:'text/plain'})),true)}>Open sample case</button></div><div className="capability-list"><div><span>01</span><div><h3>Know what’s in the system</h3><p>Hardware and software details, traced to their source.</p></div></div><div><span>02</span><div><h3>Understand what happened</h3><p>Grouped findings with evidence and next checks.</p></div></div><div><span>03</span><div><h3>Keep control of your data</h3><p>Review a report before exporting or sharing it.</p></div></div></div></section>:<>
           <div className="stats-grid">{[['Imported reports',sources.length,'Files in this case'],['Inventory fields',records.length,'Hardware, software & system'],['Processes',processes.length,'Reported by your sources'],['Findings',findings.length,'Evidence to review']].map(([label,value,note])=><div className="stat-card" key={label}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>)}</div>
@@ -96,9 +118,7 @@ export default function App() {
           {(visibleRecords.length>rowLimit||visibleProcesses.length>rowLimit)&&<button onClick={()=>setRowLimit(rowLimit+200)}>Show 200 more entries</button>}
         </>}
         {view==='findings'&&<><div className="section-heading"><h2>{filteredFindings.length} finding groups</h2><label>Severity <select value={severity} onChange={e=>setSeverity(e.target.value)}><option value="all">All severities</option>{['high','medium','low','info'].map(s=><option key={s}>{s}</option>)}</select></label></div><p className="notice neutral">Confidence describes how clearly the source supports the recorded observation. It does not establish a root cause or current fault.</p>{filteredFindings.slice(0,rowLimit).map(f=><FindingCard key={f.id} finding={f} onOpen={openEvidence}/>)}{!filteredFindings.length&&<div className="empty"><h3>No matching findings</h3><p>Import reports or adjust your filters. An empty result is not a clean bill of health.</p></div>}{filteredFindings.length>rowLimit&&<button onClick={()=>setRowLimit(rowLimit+200)}>Show more findings</button>}</>}
-        {view==='logs'&&<><div className="section-heading"><div><h2>{currentLog?.name??'Source viewer'}</h2><p className="muted">Original content · XML evidence uses element paths; text evidence uses line numbers.</p></div><input type="search" aria-label="Search source lines" placeholder="Filter source lines…" value={logQuery} onChange={e=>{setLogQuery(e.target.value);setLogStart(0);}} /></div>
-          <div className="log-view" role="region" aria-label="Source log lines" tabIndex={0}>{logLines.slice(logStart,logStart+500).map(l=><div className={'log-line '+(l.line===focusLine?'highlight':'')} key={l.line}><span>{l.line}</span><code>{l.text||' '}</code></div>)}{!logLines.length&&<p>No source lines to display.</p>}</div>
-          <div className="pagination"><button disabled={logStart===0} onClick={()=>setLogStart(Math.max(0,logStart-500))}>Previous</button><span>{logLines.length?logStart+1:0}–{Math.min(logStart+500,logLines.length)} of {logLines.length.toLocaleString()} matching lines</span><button disabled={logStart+500>=logLines.length} onClick={()=>setLogStart(logStart+500)}>Next</button></div></>}
+        {view==='logs'&&<SourceViewer source={currentLog} start={logStart} onStart={setLogStart} focusLine={focusLine} query={logQuery} onQuery={setLogQuery}/>}
         {(view==='community'||view==='account')&&<ServicePanel mode={view} session={session} onSession={setSession}/>}
         <footer className="workspace-footer"><span>StackScope · Follow the evidence.</span><span>Local analysis · No automatic uploads</span></footer>
       </main>

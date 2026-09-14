@@ -1,16 +1,45 @@
-import { _electron as electron } from '@playwright/test';
+import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-const application=await electron.launch({args:['.'],timeout:30000});
+import path from 'node:path';
+const executablePath = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
+const application = await electron.launch({ ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }), timeout: 60000 });
 try {
-  const page=await application.firstWindow();
-  await page.getByRole('button',{name:'Open sample case'}).click();
-  await page.getByRole('heading',{name:'System-file corruption reported'}).waitFor({timeout:20000});
-  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
-  assert.equal(await page.evaluate(()=>window.stackscope.platform),'win32');
-  const preferences=await application.evaluate(({BrowserWindow})=>{
-    const p=BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
-    return {sandbox:p.sandbox,nodeIntegration:p.nodeIntegration,contextIsolation:p.contextIsolation};
+  const page = await application.firstWindow();
+  await expect(page).toHaveTitle(/StackScope/);
+  assert.equal(await application.evaluate(({ app }) => app.getName()), 'StackScope');
+  if (executablePath) assert.equal(await application.evaluate(({ app }) => app.isPackaged), true);
+  await page.getByRole('button', { name: 'Open sample case' }).click();
+  await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor({ timeout: 20000 });
+  assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
+  assert.equal(await page.evaluate(() => window.stackscope.platform), 'win32');
+  const preferences = await application.evaluate(({ BrowserWindow }) => {
+    const p = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
+    return { sandbox: p.sandbox, nodeIntegration: p.nodeIntegration, contextIsolation: p.contextIsolation };
   });
-  assert.deepEqual(preferences,{sandbox:true,nodeIntegration:false,contextIsolation:true});
-  console.log('Electron smoke passed: bundled UI, parser worker, and renderer isolation.');
-} finally {await application.close();}
+  assert.deepEqual(preferences, { sandbox: true, nodeIntegration: false, contextIsolation: true });
+  await page.getByLabel('Keep StackScope in the tray when I close the window').check();
+  await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(true);
+  await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), false);
+  await application.evaluate(({ app }) => app.emit('second-instance', {}, [], '', {}));
+  assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
+  await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor();
+  await page.getByLabel('Keep StackScope in the tray when I close the window').uncheck();
+  await page.getByRole('button', { name: 'Clear sample', exact: true }).click();
+  await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
+  await page.getByLabel('Recent System and Application').uncheck();
+  await page.getByLabel('Readable CBS and DISM').uncheck();
+  await page.getByRole('button', { name: 'Start collection', exact: true }).click();
+  await expect(page.getByRole('button', { name: /computer-snapshot.json/ }).first()).toBeVisible({ timeout: 180000 });
+  await expect(page.getByRole('button', { name: /performance.csv/ }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Hardware', exact: true }).click();
+  await expect(page.getByRole('cell', { name: 'Installed physical memory', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Software & processes', exact: true }).click();
+  await expect(page.getByRole('table').first().getByRole('row')).not.toHaveCount(1);
+  await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Start collection', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('cancelled', { timeout: 30000 });
+  await expect(page.getByRole('button', { name: /computer-snapshot.json/ }).first()).toBeVisible();
+  console.log('Packaged desktop passed: StackScope branding, import worker, isolation, tray restore, native inventory / 30-second CPU collection, and cancellation.');
+} finally { await application.close(); }

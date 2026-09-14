@@ -2,7 +2,7 @@
 
 Local-first diagnostic analysis for Windows and macOS reports, with a shared React/TypeScript interface and Electron desktop app.
 
-**Status: v0.1 early preview.** This is an initial implementation, not a production-ready security scanner or paid service. Findings show source evidence and next checks; they do not establish malware, root cause, or current system health.
+**Status: v0.2 early preview.** This is not a production-ready security scanner or paid service. Findings show source evidence and next checks; they do not establish malware, root cause, or current system health.
 
 ## Start on Windows
 
@@ -11,12 +11,11 @@ Install Node.js 24 LTS and Git, then run in PowerShell:
 ~~~powershell
 git clone https://github.com/katiekimaram/stackscope.git
 cd stackscope
-git checkout codex/stackscope-initial
 npm ci
 npm run dev
 ~~~
 
-Open http://127.0.0.1:5173 and choose **Open sample case**. Synthetic reports pass through the same import pipeline as real files. After the initial PR is merged, use main instead of the feature branch. If CI has not generated the initial lockfile yet, use npm install once instead of npm ci.
+Open http://127.0.0.1:5173 and choose **Open sample case**. Synthetic reports pass through the same import pipeline as real files.
 
 ~~~powershell
 npm run desktop
@@ -28,7 +27,27 @@ This builds the shared interface and launches Electron.
 npm run desktop:dist -- --win nsis --publish never
 ~~~
 
-This creates a Windows installer in release/. Preview installers are unsigned; production signing and automatic updates are not configured.
+This creates a StackScope Windows installer in `release/`. Install that package, then launch **StackScope** from the desktop or Start menu. The installed app does not require Node.js. Do not copy just the executable from `win-unpacked`: it needs its bundled resources. Preview installers are unsigned; production signing and automatic updates are not configured.
+
+### Desktop collection and tray
+
+Choose **Collect this computer → Start collection** to add local reports to the same case used by manual imports. No account is required, and nothing is automatically uploaded.
+
+- **Windows:** hardware, Windows version, installed applications (registry and current-user packages), and running processes. Optional 30-second CPU/memory sampling, the latest 1,000 System and 1,000 Application warnings/errors from seven days, readable CBS/DISM logs, and full MSINFO/DXDIAG exports.
+- **macOS:** hardware and installed applications via System Profiler (SPX).
+- **Linux:** basic OS, CPU, and memory inventory; import additional reports for other details.
+
+Collection shows progress and can be cancelled. Permission-denied logs, unsupported portions, and collection limits appear as coverage messages; protected paths can remain unknown. Windows collection executes the bundled read-only PowerShell commands without elevation or changes to execution policy. It does not install software, repair Windows, or verify signatures. CPU percentages are measured over time and normalized to total CPU capacity; inventory-only snapshots do not imply measured performance.
+
+Enable **Keep StackScope in the tray when I close the window** for an optional minimal icon menu: Open StackScope, Collect this computer, and Quit StackScope. Closing then hides the window and retains the case. Quit ends the session. The preference survives restart; launching StackScope again restores its existing window.
+
+Collected raw files use a private app session directory and are removed after importing, on normal quit, or at the next startup following an interruption. Imported source files are retained as browser File/Blob references in the current session, while analysis and source paging run in a worker.
+
+### Desktop troubleshooting
+
+Use the complete installer from the successful **Validate StackScope** workflow's `stackscope-windows-preview` artifact, or build from source with the commands above. Supported Windows versions follow the bundled Electron release (Windows 10 or newer).
+
+Startup failures display a StackScope error dialog and write details to `%APPDATA%\StackScope\startup.log`. If a development install reports that Electron is missing, run `node node_modules/electron/install.js` and then `npm run desktop`; check whether your package manager or network prevented Electron's binary download. Retain the exact error text when reporting a failure.
 
 ## Optional service
 
@@ -57,13 +76,14 @@ Production requires a stable DEVICE_HASH_SECRET of at least 32 characters. Never
 | WER .wer | Application/path, report type, signature evidence |
 | Windows Event XML | Provider-aware selected Windows events, warnings/errors |
 | Application logs / stack traces | Exception markers, bounded surrounding frames, error grouping |
+| StackScope snapshot JSON | Native collection inventory, process metadata, coverage warnings |
 | Performance CSV | Explicit CPU, memory, duration, timestamps, process metadata |
 
-Binary EVTX, ETL, minidumps, binary plist, ZIP, and CAB are rejected. Export to text/XML/CSV or debugger text before import. Full .ips schema parsing, symbol resolution, localized text exports, native live collection, reputation providers, and comprehensive installed-app enumeration are future work. MSINFO/DXDIAG do not provide a complete app list or continuous performance measurements.
+Binary EVTX, ETL, minidumps, binary plist, ZIP, and CAB are rejected. Export to text/XML/CSV or debugger text before import. Full .ips schema parsing, symbol resolution, localized text exports, continuous live monitoring, reputation providers, and complete cross-user application enumeration are future work. MSINFO/DXDIAG do not provide a complete app list or continuous performance measurements.
 
 Every field retains its source. Reports may describe different machines or periods; filter by source before making conclusions. Unknown fields remain unknown.
 
-Limits: 12 files, 10 MiB each, 40 MiB per case, 120,000 lines per file, bounded XML complexity, 12,000 inventory/process entries per report, 500 finding groups, and a 15-second worker timeout. UTF-8 and UTF-16 are supported.
+Limits: 24 files and 2 GiB per case. Text logs stream in 1 MiB chunks up to 1 GiB per file, with no fixed line-count ceiling; single text lines are limited to 1 MiB. XML, JSON snapshots, CSV, and WER support up to 128 MiB per file. XML complexity, 12,000 inventory/process entries, and 500 finding groups remain bounded, with coverage warnings. UTF-8 and UTF-16 are supported. A two-minute inactivity watchdog stops stalled parsers. Source viewing reads 500 lines per page; searches scan the source in a worker and very long displayed lines are shortened.
 
 ## Performance CSV
 
@@ -76,7 +96,7 @@ Required: name,cpuPercent,sampleSeconds. CPU is a 0–100 percentage of total ma
 
 ## Privacy
 
-Imports stay in session memory. Closing or refreshing loses the case; export JSON to preserve results. Full original logs are not included in reports. The source viewer renders text, never HTML.
+Imports stay in session memory. Quitting or refreshing loses the case; export JSON to preserve results. Full original logs are not included in reports. The source viewer renders text, never HTML.
 
 Export removes common identifiers by default and previews the exact JSON. Redaction is best effort: custom tokens, IPv6 addresses, arbitrary hostnames, embedded secrets, and other identifiers may remain. Review before sharing. Download JSON stays local. **Save hosted case** explicitly uploads the preview to the configured service. No automatic uploads occur.
 
@@ -86,7 +106,7 @@ Electron uses sandboxing, context isolation, no renderer Node integration, bundl
 
 The whole repository uses AGPL-3.0-only, which permits commercial use under its terms. Professional use of the local analyzer does not require a subscription.
 
-The optional service charges for hosted Pro case storage (up to 100 reports/account). Local analysis and export remain free. Teams, branded reports, comparisons, and support contracts are planned, not delivered.
+The optional service charges for hosted Pro case storage (up to 100 reports/account, 32 MiB per report request). Local analysis and export remain free. Teams, branded reports, comparisons, and support contracts are planned, not delivered.
 
 Stripe integration requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID (a recurring price), and APP_ORIGIN. Test in Stripe test mode first. Deliver customer.subscription.created, updated, and deleted events to /api/billing/webhook. Webhooks verify the raw-body signature, fetch current provider state, and grant Pro only for active/trialing subscriptions with the configured price. Checkout redirects never grant access. Refresh service after returning from Stripe. Electron billing links are copied to open in an external browser.
 
@@ -109,9 +129,9 @@ npx playwright install chromium
 npm run test:ui
 ~~~
 
-CI generates the initial lockfile on the initial feature branch, validates that exact revision, runs parser/service/browser checks, builds an unsigned Windows installer, and launches Electron to verify its parser worker and renderer isolation. After bootstrap, installs use npm ci.
+CI installs locked dependencies, runs parser/service/browser checks including imports over 10 MiB and 120,000 lines, builds and installs an unsigned Windows package, and launches the installed executable. Desktop checks cover its parser worker, renderer isolation, tray behavior, actual Windows inventory and CPU collection, and cancellation. No collected machine details are uploaded as test artifacts.
 
-Host dist/ on HTTPS for local-only analysis. Connected features need /api reverse-proxied to the Node service, APP_ORIGIN set to the website origin, and persistent private SQLite storage. The service binds loopback by default and does not serve static files. Set HOST explicitly for private container networks. Electron can use STACKSCOPE_SERVICE_URL for an HTTPS service.
+Host dist/ on HTTPS for local-only analysis. Connected features need /api reverse-proxied to the Node service, APP_ORIGIN set to the website origin, and persistent private SQLite storage. The service binds loopback by default and does not serve static files. Set HOST explicitly for private container networks. Electron can use STACKSCOPE_SERVICE_URL for an HTTPS service. Configure your reverse proxy to accept 32 MiB report requests; authentication/community requests remain capped at 256 KiB. The frontend and service must be updated together for these limits.
 
 ## Source map
 
