@@ -1,0 +1,67 @@
+{
+  "name": "stackscope",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first system diagnostic analysis for web and Electron.",
+  "license": "AGPL-3.0-only",
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "desktop": "npm run build && electron .",
+    "desktop:package": "npm run build && electron-builder --dir",
+    "desktop:dist": "npm run build && electron-builder",
+    "server": "node server/index.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "playwright test"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.11.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@playwright/test": "^1.55.0",
+    "typescript": "5.9.3",
+    "vite": "^7.1.7",
+    "electron": "44.3.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "dev.stackscope.app",
+    "productName": "StackScope",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    }
+  }
+}
