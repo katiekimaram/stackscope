@@ -103,7 +103,7 @@ export default function App() {
         <footer className="workspace-footer"><span>StackScope · Follow the evidence.</span><span>Local analysis · No automatic uploads</span></footer>
       </main>
     </div>
-    {exportOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="export-heading" className="export-dialog" onKeyDown={e=>{if(e.key==='Escape')setExportOpen(false);}}>
+    {exportOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="export-heading" className="export-dialog" onKeyDown={e=>{if(e.key==='Escape')setExportOpen(false); if(e.key==='Tab'){const items=Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,a[href]'));const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}}}>
       <div className="section-heading"><h2 id="export-heading">Review your report</h2><button aria-label="Close export" onClick={()=>setExportOpen(false)}>×</button></div>
       <label>Case title<input autoFocus maxLength={160} value={title} onChange={e=>setTitle(e.target.value)}/></label>
       <label className="checkbox-label"><input type="checkbox" checked={redact} onChange={e=>setRedact(e.target.checked)}/>Remove common identifiers</label>

@@ -13,7 +13,7 @@ test('sample case follows actual import, inventory, evidence and export flows',a
  await expect(page.getByText('92%',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Export report',exact:true}).click();
  await expect(page.getByRole('dialog')).toBeVisible();
- await expect(page.getByLabel('Report export preview')).toContainText('schemaVersion');
+ await expect(page.getByLabel('Report export preview')).toHaveValue(/schemaVersion/);
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download JSON'}).click();
  expect((await download).suggestedFilename()).toBe('stackscope-report.json');
  await page.getByRole('button',{name:'Close export'}).click();

@@ -54,7 +54,7 @@ export function parseDiagnostic(input) {
     findingKeys.set(group, item); result.findings.push(item);
   }
   function process(nameValue, path = '', publisher = '', version = '', locator = '', extra = {}) {
-    const n = text(nameValue).slice(0, 200), key = [n, path, version, extra.pid ?? ''].join('|');
+    const n = text(nameValue).slice(0, 200), key = [n, path, version, extra.pid ?? '', extra.measuredAt ?? '', extra.cpuPercent ?? '', extra.sampleSeconds ?? ''].join('|');
     if (!n || result.processes.length >= MAX_RECORDS || processKeys.has(key)) return;
     processKeys.add(key);
     result.processes.push({ name: n, path: text(path), publisher: text(publisher), version: text(version), ...extra, evidence: evidence(locator, key) });
