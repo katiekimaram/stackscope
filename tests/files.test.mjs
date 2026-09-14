@@ -36,6 +36,8 @@ test('inventory sections and stack lookahead survive a read boundary', async () 
 test('structured reports larger than 10 MiB work, while declared budgets reject before reading', async () => {
   const file = new File(['<MsInfo><!--', 'x'.repeat(11 * 1024 * 1024), '--><Category name="System"><Data><Item>Processor</Item><Value>Large XML CPU</Value></Data></Category></MsInfo>'], 'system.nfo');
   assert.equal((await analyzeFile(file, 'xml')).records[0].value, 'Large XML CPU');
+  const page = await readSourcePage(file, 0, 'Large XML CPU');
+  assert.equal(page.rows[0].line, 1); assert.ok(page.rows[0].text.length < 8100);
   assert.throws(() => validateFile({ name: 'CBS.log', size: MAX_FILE_BYTES + 1 }), /1 GiB/);
   const huge = { name: 'large.xml', size: MAX_STRUCTURED_BYTES + 1, slice: () => new Blob(['<xml/>']), arrayBuffer: () => { throw new Error('must not allocate'); } };
   await assert.rejects(analyzeFile(huge, 'huge'), /128 MiB/);

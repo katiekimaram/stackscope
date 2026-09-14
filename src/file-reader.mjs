@@ -19,12 +19,12 @@ export async function* decodedChunks(file, progress = (_bytes, _total) => {}, ch
     yield text;
   }
 }
-export async function* lineBatches(file, progress, chunkBytes) {
+export async function* lineBatches(file, progress, chunkBytes, maxLine = MAX_LINE_CHARACTERS) {
   let carry = '';
   for await (const chunk of decodedChunks(file, progress, chunkBytes)) {
     const parts = (carry + chunk).split('\n');
     carry = parts.pop();
-    if (carry.length > MAX_LINE_CHARACTERS || parts.some(line => line.length > MAX_LINE_CHARACTERS)) {
+    if (carry.length > maxLine || parts.some(line => line.length > maxLine)) {
       throw new Error('A source line exceeds 1 MiB. Export a formatted report with line breaks.');
     }
     if (parts.length) yield parts.map(line => line.replace(/\r$/, ''));
@@ -62,7 +62,7 @@ export async function analyzeFile(file, id, progress = (_bytes, _total) => {}) {
 export async function readSourcePage(file, start = 0, query = '', pageSize = 500, progress = (_bytes, _total) => {}) {
   const rows = [], needle = query.toLowerCase();
   let line = 0, matched = 0;
-  for await (const batch of lineBatches(file, progress)) {
+  for await (const batch of lineBatches(file, progress, undefined, MAX_STRUCTURED_BYTES)) {
     for (const text of batch) {
       line++;
       if (needle && !text.toLowerCase().includes(needle)) continue;

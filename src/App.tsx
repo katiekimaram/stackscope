@@ -32,7 +32,7 @@ export default function App() {
   useEffect(()=>window.stackscope?.onDesktopEvent(event=>{if(event.type==='progress')setProgress(event.message??'Collecting diagnostics…');if(event.type==='open-collection')setView('overview');}),[]);
   const input=useRef<HTMLInputElement>(null),inFlight=useRef(false);
   const selected=sources.filter(s=>sourceId==='all'||s.id===sourceId);
-  const matches=(value:unknown)=>JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
+  const matches=(value:unknown)=>!query||JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
   const records=selected.flatMap(s=>s.report.records),processes=selected.flatMap(s=>s.report.processes),findings=selected.flatMap(s=>s.report.findings);
   const filteredFindings=findings.filter(f=>(severity==='all'||f.severity===severity)&&matches(f));
   const warnings=selected.flatMap(s=>s.report.warnings.map(w=>s.name+': '+w));
