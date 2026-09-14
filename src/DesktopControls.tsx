@@ -19,7 +19,7 @@ export default function DesktopControls({ busy, collect }: { busy: boolean; coll
       ] as [keyof CollectionOptions, string][]).map(([key, label]) => <label className="checkbox-label" key={key}><input type="checkbox" checked={options[key]} disabled={busy} onChange={e => setOptions({ ...options, [key]: e.target.checked })} />{label}</label>)}</div>}
       <p className="muted">Collection starts when you click below. Reports remain local. Inaccessible logs are listed in the collection results.</p><button className="primary" disabled={busy} onClick={() => collect(options)}>Start collection</button>
     </div>}
-    <label className="checkbox-label"><input type="checkbox" checked={tray} disabled={saving} onChange={async e => { setSaving(true); setError(''); try { setTray((await window.stackscope!.setTray(e.target.checked)).trayEnabled); } catch (error) { setError(error instanceof Error ? error.message : 'Could not save tray preference.'); } finally { setSaving(false); } }} />Keep StackScope in the tray when I close the window</label>
+    <label className="checkbox-label"><input type="checkbox" checked={tray} disabled={saving} onChange={async e => { const previous=tray, enabled=e.target.checked; setTray(enabled); setSaving(true); setError(''); try { setTray((await window.stackscope!.setTray(enabled)).trayEnabled); } catch (error) { setTray(previous); setError(error instanceof Error ? error.message : 'Could not save tray preference.'); } finally { setSaving(false); } }} />Keep StackScope in the tray when I close the window</label>
     {error && <p role="alert">{error}</p>}
   </section>;
 }

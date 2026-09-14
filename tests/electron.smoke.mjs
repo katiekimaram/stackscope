@@ -25,6 +25,7 @@ try {
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
   await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor();
   await page.getByLabel('Keep StackScope in the tray when I close the window').uncheck();
+  await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(false);
   await page.getByRole('button', { name: 'Clear sample', exact: true }).click();
   await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
   await page.getByLabel('Recent System and Application').uncheck();
