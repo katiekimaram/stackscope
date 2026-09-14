@@ -28,11 +28,11 @@ try {
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(false);
   await page.getByRole('button', { name: 'Clear sample', exact: true }).click();
   await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
-  await page.getByLabel('Recent System and Application').uncheck();
-  await page.getByLabel('Readable CBS and DISM').uncheck();
   await page.getByRole('button', { name: 'Start collection', exact: true }).click();
   await expect(page.getByRole('button', { name: /computer-snapshot.json/ }).first()).toBeVisible({ timeout: 180000 });
   await expect(page.getByRole('button', { name: /performance.csv/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /windows-events.xml/ }).first()).toBeVisible();
+  console.log('Native collection imported inventory, performance, and recent Windows events.');
   await page.getByRole('button', { name: 'Hardware', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Installed physical memory', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Software & processes', exact: true }).click();

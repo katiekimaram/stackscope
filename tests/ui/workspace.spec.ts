@@ -79,3 +79,12 @@ test('large log import reaches end-of-file findings and opens the matching sourc
  await page.getByLabel('Search source lines').fill('final-entry.dll');
  await expect(page.locator('.log-line')).toHaveCount(1);
 });
+
+test('case files and removal controls remain available at laptop window widths', async ({page}) => {
+ await page.setViewportSize({width:1024,height:768});
+ await page.goto('/');
+ await page.getByRole('button',{name:'Open sample case'}).click();
+ await expect(page.getByRole('heading',{name:'Case files',exact:true})).toBeVisible();
+ await expect(page.locator('.source-item').first().getByRole('button').first()).toBeVisible();
+ await expect(page.locator('.source-item').first().getByRole('button',{name:/Remove /})).toBeVisible();
+});
