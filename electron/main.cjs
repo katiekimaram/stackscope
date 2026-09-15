@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, session, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, protocol, session, ipcMain, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 const { readFile, writeFile, mkdir, mkdtemp, rm } = require('node:fs/promises');
 const { appendFileSync, createReadStream } = require('node:fs');
 const { Readable } = require('node:stream');
@@ -97,6 +97,34 @@ app.whenReady().then(async()=>{
   });
   session.defaultSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
   session.defaultSession.setPermissionCheckHandler(()=>false);
+  const command = type => () => { showWindow(); sendEvent({ type }); };
+  const applicationMenu = Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+    { label: 'File', submenu: [
+      { label: 'New case', accelerator: 'CmdOrCtrl+N', click: command('new-case') },
+      { label: 'Import files…', accelerator: 'CmdOrCtrl+O', click: command('import') },
+      { label: 'Collect this computer…', accelerator: 'CmdOrCtrl+Shift+C', click: command('open-collection') },
+      { label: 'Export report…', accelerator: 'CmdOrCtrl+Shift+E', click: command('export') },
+      { type: 'separator' }, { label: 'Preferences…', accelerator: 'CmdOrCtrl+,', click: command('preferences') },
+      { type: 'separator' }, { role: 'quit' },
+    ] },
+    { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    { label: 'View', submenu: [
+      ...[['overview', 'Overview'], ['hardware', 'Hardware'], ['software', 'Software & processes'], ['findings', 'Findings'], ['logs', 'Source logs']].map(([view, label], index) => ({ label, accelerator: 'CmdOrCtrl+' + (index + 1), click: command('view:' + view) })),
+      { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' },
+    ] },
+    { label: 'Account', submenu: [{ label: 'Community & account', click: command('account') }] },
+    { label: 'Help', submenu: [
+      { label: 'About StackScope', click: () => { void dialog.showMessageBox(window, { type: 'info', title: 'StackScope', message: 'StackScope ' + app.getVersion(), detail: 'System diagnostic workspace.\nOpen source under AGPL-3.0-only.\nLocal analysis does not require an account.' }); } },
+      { label: 'Documentation', click: () => { void shell.openExternal('https://github.com/katiekimaram/stackscope#readme'); } },
+    ] },
+  ]);
+  Menu.setApplicationMenu(applicationMenu);
+  ipcMain.handle('stackscope:menu', event => { trusted(event); applicationMenu.popup({ window }); });
+  ipcMain.handle('stackscope:appearance', (event, theme) => {
+    trusted(event); if (!['dark', 'light'].includes(theme)) throw new Error('Invalid appearance.');
+    if (process.platform !== 'darwin') window.setTitleBarOverlay({ color: theme === 'light' ? '#e9eef3' : '#1d2530', symbolColor: theme === 'light' ? '#202b38' : '#e0e6ed', height: 36 });
+  });
   ipcMain.handle('stackscope:preferences', event => { trusted(event); return { trayEnabled }; });
   ipcMain.handle('stackscope:tray', async (event, enabled) => {
     trusted(event); if (typeof enabled !== 'boolean') throw new Error('Invalid tray preference.');
@@ -137,8 +165,9 @@ app.whenReady().then(async()=>{
     return {status:response.status,data};
   });
   function createWindow(){
-    window=new BrowserWindow({width:1440,height:960,minWidth:840,minHeight:640,backgroundColor:'#0b1018',title:'StackScope',autoHideMenuBar:true,show:false,icon:resolve(__dirname,'assets','icon.png'),
+    window=new BrowserWindow({width:1440,height:960,minWidth:840,minHeight:640,backgroundColor:'#11161d',title:'StackScope',titleBarStyle:'hidden',...(process.platform!=='darwin'?{titleBarOverlay:{color:'#1d2530',symbolColor:'#e0e6ed',height:36}}:{}),autoHideMenuBar:true,show:false,icon:resolve(__dirname,'assets','icon.png'),
       webPreferences:{preload:resolve(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,webviewTag:false}});
+    window.setMenuBarVisibility(false);
     window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     window.webContents.on('will-navigate',event=>event.preventDefault());
     window.webContents.on('will-attach-webview',event=>event.preventDefault());

@@ -1,6 +1,7 @@
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 const executablePath = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
 const application = await electron.launch({ ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }), timeout: 60000 });
 try {
@@ -17,15 +18,24 @@ try {
     return { sandbox: p.sandbox, nodeIntegration: p.nodeIntegration, contextIsolation: p.contextIsolation };
   });
   assert.deepEqual(preferences, { sandbox: true, nodeIntegration: false, contextIsolation: true });
+  const menus=await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.map(item=>item.label));
+  for(const label of ['File','Edit','View','Account','Help'])assert.ok(menus.includes(label));
+  assert.equal(await page.locator('.titlebar').evaluate(element=>getComputedStyle(element).getPropertyValue('-webkit-app-region')),'drag');
+  await mkdir('test-results',{recursive:true});
+  await page.screenshot({path:'test-results/desktop-workspace.png'});
+  await page.getByRole('button',{name:'Preferences',exact:true}).click();
   await page.getByLabel('Keep StackScope in the tray when I close the window').check();
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(true);
+  await page.getByRole('button',{name:'Done',exact:true}).click();
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), false);
   await application.evaluate(({ app }) => app.emit('second-instance', {}, [], '', {}));
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
   await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor();
+  await page.getByRole('button',{name:'Preferences',exact:true}).click();
   await page.getByLabel('Keep StackScope in the tray when I close the window').uncheck();
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(false);
+  await page.getByRole('button',{name:'Done',exact:true}).click();
   await page.getByRole('button', { name: 'Clear sample', exact: true }).click();
   await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
   await page.getByRole('button', { name: 'Start collection', exact: true }).click();
@@ -36,8 +46,11 @@ try {
   await page.getByRole('button', { name: 'Hardware', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Installed physical memory', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Software & processes', exact: true }).click();
+  await page.getByLabel('Filter by source').selectOption({label:'performance.csv'});
   await expect(page.getByRole('table').first().getByRole('row')).not.toHaveCount(1);
+  await expect(page.getByText(/second sample/).first()).toBeVisible();
   await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
   await page.getByRole('button', { name: 'Start collection', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('cancelled', { timeout: 30000 });

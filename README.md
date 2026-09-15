@@ -2,7 +2,7 @@
 
 Local-first diagnostic analysis for Windows and macOS reports, with a shared React/TypeScript interface and Electron desktop app.
 
-**Status: v0.2 early preview.** This is not a production-ready security scanner or paid service. Findings show source evidence and next checks; they do not establish malware, root cause, or current system health.
+**Status: v0.3 early preview.** This is not a production-ready security scanner or paid service. Findings show source evidence and next checks; they do not establish malware, root cause, or current system health.
 
 ## Start on Windows
 
@@ -29,6 +29,12 @@ npm run desktop:dist -- --win nsis --publish never
 
 This creates a StackScope Windows installer in `release/`. Install that package, then launch **StackScope** from the desktop or Start menu. The installed app does not require Node.js. Do not copy just the executable from `win-unpacked`: it needs its bundled resources. Preview installers are unsigned; production signing and automatic updates are not configured.
 
+### Desktop workspace
+
+The compact workspace keeps case files beside the diagnostic views, with a command toolbar and status bar. Electron provides a draggable title bar, native window controls, and File, Edit, View, Account, and Help menus. Preferences contains appearance and tray settings; collection and export open as dialogs. The browser uses the same layout, diagnostic pipeline, and account service.
+
+Desktop shortcuts: **Ctrl/Cmd+O** imports files, **Ctrl/Cmd+N** starts a new case, **Ctrl/Cmd+Shift+C** opens collection, **Ctrl/Cmd+Shift+E** opens export, **Ctrl/Cmd+,** opens Preferences, and **Ctrl/Cmd+1–5** switches diagnostic views. Import, export, and Preferences shortcuts also work in the browser.
+
 ### Desktop collection and tray
 
 Choose **Collect this computer → Start collection** to add local reports to the same case used by manual imports. No account is required, and nothing is automatically uploaded.
@@ -39,7 +45,7 @@ Choose **Collect this computer → Start collection** to add local reports to th
 
 Collection shows progress and can be cancelled. Permission-denied logs, unsupported portions, and collection limits appear as coverage messages; protected paths can remain unknown. Windows collection executes the bundled read-only PowerShell commands without elevation or changes to execution policy. It does not install software, repair Windows, or verify signatures. CPU percentages are measured over time and normalized to total CPU capacity; inventory-only snapshots do not imply measured performance.
 
-Enable **Keep StackScope in the tray when I close the window** for an optional minimal icon menu: Open StackScope, Collect this computer, and Quit StackScope. Closing then hides the window and retains the case. Quit ends the session. The preference survives restart; launching StackScope again restores its existing window.
+In **Preferences**, enable **Keep StackScope in the tray when I close the window** for an optional minimal icon menu: Open StackScope, Collect this computer, and Quit StackScope. Closing then hides the window and retains the case. Quit ends the session. The preference survives restart; launching StackScope again restores its existing window.
 
 Collected raw files use a private app session directory and are removed after importing, on normal quit, or at the next startup following an interruption. Imported source files are retained as browser File/Blob references in the current session, while analysis and source paging run in a worker.
 
@@ -53,7 +59,9 @@ Startup failures display a StackScope error dialog and write details to `%APPDAT
 
 Run npm run server in a second terminal. Development web requests proxy /api to http://127.0.0.1:8787; Electron uses the same service by default. The service stores accounts, community content, and explicitly uploaded reports in stackscope.sqlite.
 
-Create accounts in Electron under **Account & plans**. The official client registers a fingerprint derived from Windows system UUID, macOS platform UUID, or Linux machine ID. Browser users can sign in afterwards. Passwords use salted scrypt; session tokens expire after 24 hours and stay in UI memory, not localStorage.
+Open **Community & account** for one sign-in covering community contributions and votes, the **Saved reports** tab, and subscription settings in the **Account** tab. Moving between these tabs and local diagnostics retains the same session. Signing out or an expired session clears access to account data while keeping the current local case available. Local diagnostics do not require an account.
+
+Create accounts in Electron using **Create account** in that shared sign-in panel. The official client registers a fingerprint derived from Windows system UUID, macOS platform UUID, or Linux machine ID. Browser users can sign in afterwards. Passwords use salted scrypt; session tokens expire after 24 hours and stay in UI memory, not localStorage. Closing the application ends the in-memory session; signing in again is required after restart.
 
 Set ADMIN_USERNAMES to comma-separated existing usernames, then restart to enable moderation. Descriptions await approval. Votes are separate dimensions for usefulness, performance concerns, and suspicious behavior. One editable vote per user/product/dimension is enforced by the database. Votes never become malware findings.
 
