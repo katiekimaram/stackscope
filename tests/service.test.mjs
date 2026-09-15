@@ -39,11 +39,12 @@ test('accounts, votes, moderation, device reuse and case isolation',async t=>{
  assert.equal((await call('/api/billing/checkout','POST',{},token)).status,503);
  // A fixture entitlement lets this test exercise storage isolation without making any payment request.
  s.db.prepare('UPDATE users SET pro=1 WHERE id=?').run(a.data.user.id);
- const saved=await call('/api/cases','POST',{title:'Private case',report:{note:'private'}},token);
+ const saved=await call('/api/cases','POST',{title:'Private case',report:{note:'private',evidence:'x'.repeat(400000)}},token);
  assert.equal(saved.status,201);
  assert.equal((await call('/api/cases/'+saved.data.id,'GET',undefined,other)).status,404);
  await call('/api/cases/'+saved.data.id,'DELETE',{},other);
- assert.equal((await call('/api/cases/'+saved.data.id,'GET',undefined,token)).status,200);
+ const restored=await call('/api/cases/'+saved.data.id,'GET',undefined,token);
+ assert.equal(restored.status,200);assert.equal(restored.data.report.evidence.length,400000);
  assert.equal((await fetch(base+'/api/health',{headers:{Origin:'https://untrusted.invalid'}})).status,403);
  await call('/api/auth/logout','POST',{},other);assert.equal((await call('/api/me','GET',undefined,other)).status,401);
 });

@@ -1,3 +1,4 @@
+import { MAX_REPORT_BYTES } from '../shared/limits.mjs';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, createHash, createHmac, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
@@ -71,9 +72,9 @@ export function createService(options={}) {
     const data=await response.json();
     if(!response.ok) fail(502,'The billing provider could not complete this request.'); return data;
   }
-  async function rawBody(req) {
+  async function rawBody(req, limit=256*1024) {
     const chunks=[]; let bytes=0;
-    for await(const chunk of req) {bytes+=chunk.length;if(bytes>256*1024)fail(413,'Request exceeds the 256 KiB limit.');chunks.push(chunk);}
+    for await(const chunk of req) {bytes+=chunk.length;if(bytes>limit)fail(413,limit===MAX_REPORT_BYTES?'Hosted reports support up to 32 MiB.':'Request exceeds the 256 KiB limit.');chunks.push(chunk);}
     return Buffer.concat(chunks);
   }
   const server=createServer(async(req,res)=>{
@@ -85,7 +86,7 @@ export function createService(options={}) {
       const route=new URL(req.url,'http://localhost').pathname;
       const network=req.socket.remoteAddress??'unknown';
       rate('all:'+network,240,60000);
-      if(req.method==='GET'&&route==='/api/health')return send(200,{status:'ok',billingConfigured:billing,registration:'desktop-device',version:'0.1.0'});
+      if(req.method==='GET'&&route==='/api/health')return send(200,{status:'ok',billingConfigured:billing,registration:'desktop-device',version:'0.2.0'});
       if(req.method==='POST'&&route==='/api/billing/webhook'){
         if(!billing)fail(503,'Billing is not configured.');
         const raw=await rawBody(req);
@@ -104,10 +105,11 @@ export function createService(options={}) {
         }
         return send(200,{received:true});
       }
+      if(route==='/api/cases'&&req.method==='POST'&&!auth(req).pro)fail(403,'Hosted case storage requires Pro.');
       let body={};
       if(['POST','DELETE'].includes(req.method)){
         if(!String(req.headers['content-type']??'').startsWith('application/json'))fail(415,'Use application/json.');
-        const raw=await rawBody(req);try{body=raw.length?JSON.parse(raw):{};}catch{fail(400,'Invalid JSON.');}
+        const raw=await rawBody(req,route==='/api/cases'?MAX_REPORT_BYTES:256*1024);try{body=raw.length?JSON.parse(raw):{};}catch{fail(400,'Invalid JSON.');}
         if(!body||Array.isArray(body)||typeof body!=='object')fail(400,'JSON must be an object.');
       }
       if(req.method==='POST'&&route==='/api/auth/register'){

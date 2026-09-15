@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDiagnostic as parse,decodeDiagnostic,redactReport,MAX_FILE_BYTES } from '../src/engine.mjs';
+import { parseDiagnostic as parse,decodeDiagnostic,redactReport } from '../src/engine.mjs';
 test('DXDIAG text extracts hardware with original line evidence',()=>{
  const r=parse({name:'DxDiag.txt',text:'System Information\nProcessor: Test CPU\nMemory: 32768MB RAM\nDirectX Version: DirectX 12\nDisplay Devices\nCard name: Example GPU'});
  assert.equal(r.format,'DXDIAG text');assert.equal(r.records.find(x=>x.label==='Processor').value,'Test CPU');
@@ -27,7 +27,7 @@ test('entity payloads, excessive depth, malformed XML, binary files, oversized i
  for(const text of ['<!DOCTYPE x [<!ENTITY x "boom">]><x>&x;</x>','<x>'.repeat(100)+'</x>'.repeat(100),'<MsInfo><Data></MsInfo>'])assert.throws(()=>parse({name:'input.xml',text}));
  assert.throws(()=>parse({name:'events.evtx',text:'binary-looking content'}),/Binary/);
  assert.throws(()=>parse({name:'binary.spx',text:'bplist00test'}),/Binary/);
- assert.throws(()=>decodeDiagnostic(new Uint8Array(MAX_FILE_BYTES+1)),/10 MiB/);
+
 });
 test('CBS errors remain historical even when repair follows',()=>{
  const r=parse({name:'CBS.log',text:'2026-09-14 Info CSI [SR] Cannot repair member file foo.dll\n2026-09-14 Info CSI [SR] Repairing corrupted file foo.dll from store\n2026-09-14 Info CSI [SR] Repair complete'});

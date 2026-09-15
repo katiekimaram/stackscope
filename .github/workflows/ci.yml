@@ -1,43 +1,16 @@
 name: Validate StackScope
 on:
   push:
-    branches: [main, codex/stackscope-initial]
+    branches: [main, 'codex/**']
   pull_request:
     branches: [main]
 permissions:
   contents: read
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      sha: ${{ steps.revision.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Generate initial lockfile
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/stackscope-initial'
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package-lock.json
-            git commit -m "Lock initial StackScope dependencies"
-            git push origin HEAD:codex/stackscope-initial
-          fi
-      - id: revision
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   web-and-service:
-    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -59,14 +32,11 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
   windows-desktop:
-    needs: prepare
     runs-on: windows-latest
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -74,8 +44,20 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run desktop:dist -- --win nsis --publish never
-      - name: Launch Electron and verify local import
-        run: node tests/electron.smoke.mjs
+      - name: Install the Windows package
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release/StackScope-*-win-x64.exe | Select-Object -First 1
+          if (-not $installer) { throw 'StackScope installer is missing.' }
+          $target = Join-Path $env:RUNNER_TEMP 'StackScope-installed'
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$target") -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
+          $executable = Join-Path $target 'StackScope.exe'
+          if (-not (Test-Path $executable)) { throw 'Installed StackScope executable is missing.' }
+          "STACKSCOPE_TEST_EXE=$executable" >> $env:GITHUB_ENV
+      - name: Launch installed app and verify collection and tray
+        shell: pwsh
+        run: node tests/electron.smoke.mjs "$env:STACKSCOPE_TEST_EXE"
       - uses: actions/upload-artifact@v4
         with:
           name: stackscope-windows-preview
