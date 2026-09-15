@@ -9,6 +9,8 @@ declare global {
   interface Window {
     stackscope?: {
       platform: string;
+      showMenu: () => Promise<void>;
+      setAppearance: (theme: string) => Promise<void>;
       preferences: () => Promise<{ trayEnabled: boolean }>;
       setTray: (enabled: boolean) => Promise<{ trayEnabled: boolean }>;
       collect: (options: CollectionOptions) => Promise<{ files: { name: string; bytes: number; url: string }[]; warnings: string[] }>;

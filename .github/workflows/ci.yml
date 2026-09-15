@@ -62,3 +62,10 @@ jobs:
         with:
           name: stackscope-windows-preview
           path: release/*.exe
+      - name: Save desktop interface preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-interface-preview
+          path: test-results/desktop-workspace.png
+          if-no-files-found: ignore

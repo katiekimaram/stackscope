@@ -1,6 +1,7 @@
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 const executablePath = process.argv[2] ? path.resolve(process.argv[2]) : undefined;
 const application = await electron.launch({ ...(executablePath ? { executablePath, args: [] } : { args: ['.'] }), timeout: 60000 });
 try {
@@ -17,15 +18,30 @@ try {
     return { sandbox: p.sandbox, nodeIntegration: p.nodeIntegration, contextIsolation: p.contextIsolation };
   });
   assert.deepEqual(preferences, { sandbox: true, nodeIntegration: false, contextIsolation: true });
+  const menus=await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.map(item=>item.label));
+  for(const label of ['File','Edit','View','Account','Help'])assert.ok(menus.includes(label));
+  assert.equal(await page.locator('.titlebar').evaluate(element=>getComputedStyle(element).getPropertyValue('-webkit-app-region')),'drag');
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items.find(item=>item.label==='Hardware').click());
+  await expect(page.getByText('AMD Ryzen 7 7800X3D',{exact:true})).toBeVisible();
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items.find(item=>item.label==='Overview').click());
+  await expect(page.getByRole('heading',{name:'Diagnostic overview'})).toBeVisible();
+  await mkdir('test-results',{recursive:true});
+  await page.screenshot({path:'test-results/desktop-workspace.png'});
+  await page.getByRole('button',{name:'Preferences',exact:true}).click();
   await page.getByLabel('Keep StackScope in the tray when I close the window').check();
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(true);
+  await page.getByRole('button',{name:'Done',exact:true}).click();
   await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), false);
   await application.evaluate(({ app }) => app.emit('second-instance', {}, [], '', {}));
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
   await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor();
+  await page.getByRole('button',{name:'Preferences',exact:true}).click();
+  await expect(page.getByLabel('Keep StackScope in the tray when I close the window')).toBeEnabled();
+  await expect(page.getByLabel('Keep StackScope in the tray when I close the window')).toBeChecked();
   await page.getByLabel('Keep StackScope in the tray when I close the window').uncheck();
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(false);
+  await page.getByRole('button',{name:'Done',exact:true}).click();
   await page.getByRole('button', { name: 'Clear sample', exact: true }).click();
   await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
   await page.getByRole('button', { name: 'Start collection', exact: true }).click();
@@ -33,11 +49,20 @@ try {
   await expect(page.getByRole('button', { name: /performance.csv/ }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /windows-events.xml/ }).first()).toBeVisible();
   console.log('Native collection imported inventory, performance, and recent Windows events.');
+  // Collection takes over 30 seconds, so no recent renderer click can supply
+  // the user gesture required by a file picker opened from the native menu.
+  const picker=page.waitForEvent('filechooser',{timeout:10000});
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='File').submenu.items.find(item=>item.label==='Import files…').click());
+  await (await picker).setFiles({name:'menu-import.log',mimeType:'text/plain',buffer:Buffer.from('INFO imported through the native File menu\n')});
+  await expect(page.getByRole('button',{name:/menu-import.log/}).first()).toBeVisible();
   await page.getByRole('button', { name: 'Hardware', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Installed physical memory', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Software & processes', exact: true }).click();
+  await page.getByLabel('Filter by source').selectOption({label:'performance.csv'});
   await expect(page.getByRole('table').first().getByRole('row')).not.toHaveCount(1);
+  await expect(page.getByText(/second sample/).first()).toBeVisible();
   await page.getByRole('button', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Collect this computer', exact: true }).click();
   await page.getByRole('button', { name: 'Start collection', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('cancelled', { timeout: 30000 });

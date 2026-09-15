@@ -86,7 +86,7 @@ export function createService(options={}) {
       const route=new URL(req.url,'http://localhost').pathname;
       const network=req.socket.remoteAddress??'unknown';
       rate('all:'+network,240,60000);
-      if(req.method==='GET'&&route==='/api/health')return send(200,{status:'ok',billingConfigured:billing,registration:'desktop-device',version:'0.2.0'});
+      if(req.method==='GET'&&route==='/api/health')return send(200,{status:'ok',billingConfigured:billing,registration:'desktop-device',version:'0.3.0'});
       if(req.method==='POST'&&route==='/api/billing/webhook'){
         if(!billing)fail(503,'Billing is not configured.');
         const raw=await rawBody(req);

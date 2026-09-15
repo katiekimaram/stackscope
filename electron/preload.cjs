@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('stackscope', Object.freeze({
   platform: process.platform,
+  showMenu: () => ipcRenderer.invoke('stackscope:menu'),
+  setAppearance: theme => ipcRenderer.invoke('stackscope:appearance', theme),
   deviceIdentity: () => ipcRenderer.invoke('stackscope:device'),
   request: input => ipcRenderer.invoke('stackscope:request', input),
   preferences: () => ipcRenderer.invoke('stackscope:preferences'),
