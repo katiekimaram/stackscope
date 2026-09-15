@@ -21,6 +21,7 @@ export default function ServicePanel({ active, session, onSession }: { active: b
     try {
       const [health, library] = await Promise.all([api('/api/health'), api('/api/community')]);
       if (!current()) return;
+      if (!Array.isArray(library?.entries)) throw new Error('The community service returned an unreadable response. Try refreshing.');
       setBillingReady(health.billingConfigured); setEntries(library.entries); setConnected(true);
       if (session) {
         const me = await api('/api/me', { token });

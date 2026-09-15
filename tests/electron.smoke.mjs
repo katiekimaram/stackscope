@@ -21,6 +21,10 @@ try {
   const menus=await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.map(item=>item.label));
   for(const label of ['File','Edit','View','Account','Help'])assert.ok(menus.includes(label));
   assert.equal(await page.locator('.titlebar').evaluate(element=>getComputedStyle(element).getPropertyValue('-webkit-app-region')),'drag');
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items.find(item=>item.label==='Hardware').click());
+  await expect(page.getByText('AMD Ryzen 7 7800X3D',{exact:true})).toBeVisible();
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='View').submenu.items.find(item=>item.label==='Overview').click());
+  await expect(page.getByRole('heading',{name:'Diagnostic overview'})).toBeVisible();
   await mkdir('test-results',{recursive:true});
   await page.screenshot({path:'test-results/desktop-workspace.png'});
   await page.getByRole('button',{name:'Preferences',exact:true}).click();
@@ -33,6 +37,8 @@ try {
   assert.equal(await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), true);
   await page.getByRole('heading', { name: 'System-file corruption reported' }).waitFor();
   await page.getByRole('button',{name:'Preferences',exact:true}).click();
+  await expect(page.getByLabel('Keep StackScope in the tray when I close the window')).toBeEnabled();
+  await expect(page.getByLabel('Keep StackScope in the tray when I close the window')).toBeChecked();
   await page.getByLabel('Keep StackScope in the tray when I close the window').uncheck();
   await expect.poll(() => page.evaluate(async () => (await window.stackscope.preferences()).trayEnabled)).toBe(false);
   await page.getByRole('button',{name:'Done',exact:true}).click();

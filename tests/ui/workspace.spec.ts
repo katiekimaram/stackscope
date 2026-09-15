@@ -45,6 +45,7 @@ test('hosted save transmits the reviewed redacted title and report',async({page}
    if(path==='/api/health')value={status:'ok',billingConfigured:false};
    else if(path==='/api/auth/login')value={token:'a'.repeat(64),user};
    else if(path==='/api/me')value={user,billingConfigured:false};
+   else if(path==='/api/community')value={entries:[]};
    else if(path==='/api/cases'&&route.request().method()==='POST'){uploaded=route.request().postDataJSON();value={id:'case'};}
    else if(path==='/api/cases')value={cases:[]};
    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)});
