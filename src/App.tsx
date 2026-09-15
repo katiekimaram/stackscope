@@ -137,7 +137,7 @@ export default function App() {
       <button disabled={!sources.length||busy} onClick={()=>{setExportOpen(true);setExportStatus('');}} title="Export report (Ctrl+Shift+E)"><Icon name="export"/><span>Export report</span></button></div>
       <button className={'account-button '+(view==='community'?'active':'')} aria-label="Community & account" aria-pressed={view==='community'} onClick={()=>setView('community')}><Icon name="user"/><span>{session?session.user.username:'Community & account'}</span>{session&&<small>{session.user.pro?'Pro':'Personal'}</small>}</button>
     </div>
-    <input className="visually-hidden" ref={input} type="file" multiple accept=".txt,.log,.nfo,.xml,.spx,.wer,.csv,.ips,.crash,.stacktrace,.json" onChange={e=>{void importFiles(Array.from(e.target.files??[]));e.target.value='';}} aria-label="Diagnostic files" />
+    <input id="diagnostic-files" className="visually-hidden" ref={input} type="file" disabled={busy} multiple accept=".txt,.log,.nfo,.xml,.spx,.wer,.csv,.ips,.crash,.stacktrace,.json" onChange={e=>{void importFiles(Array.from(e.target.files??[]));e.target.value='';}} aria-label="Diagnostic files" />
     <div className="application-body">
       <aside className="sidebar" aria-label="Case explorer">
         <div className="pane-label">DIAGNOSTICS</div>

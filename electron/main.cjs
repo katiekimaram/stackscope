@@ -102,7 +102,12 @@ app.whenReady().then(async()=>{
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
       { label: 'New case', accelerator: 'CmdOrCtrl+N', click: command('new-case') },
-      { label: 'Import files…', accelerator: 'CmdOrCtrl+O', click: command('import') },
+      { label: 'Import files…', accelerator: 'CmdOrCtrl+O', click: () => {
+        showWindow();
+        // Native menus do not carry renderer user activation through IPC. Keep
+        // the file picker gesture explicit and retain lazy browser File reads.
+        void window.webContents.executeJavaScript('if (!document.querySelector("dialog[open]")) document.getElementById("diagnostic-files")?.click()', true).catch(() => {});
+      } },
       { label: 'Collect this computer…', accelerator: 'CmdOrCtrl+Shift+C', click: command('open-collection') },
       { label: 'Export report…', accelerator: 'CmdOrCtrl+Shift+E', click: command('export') },
       { type: 'separator' }, { label: 'Preferences…', accelerator: 'CmdOrCtrl+,', click: command('preferences') },

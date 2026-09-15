@@ -49,6 +49,12 @@ try {
   await expect(page.getByRole('button', { name: /performance.csv/ }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /windows-events.xml/ }).first()).toBeVisible();
   console.log('Native collection imported inventory, performance, and recent Windows events.');
+  // Collection takes over 30 seconds, so no recent renderer click can supply
+  // the user gesture required by a file picker opened from the native menu.
+  const picker=page.waitForEvent('filechooser',{timeout:10000});
+  await application.evaluate(({Menu})=>Menu.getApplicationMenu().items.find(item=>item.label==='File').submenu.items.find(item=>item.label==='Import files…').click());
+  await (await picker).setFiles({name:'menu-import.log',mimeType:'text/plain',buffer:Buffer.from('INFO imported through the native File menu\n')});
+  await expect(page.getByRole('button',{name:/menu-import.log/}).first()).toBeVisible();
   await page.getByRole('button', { name: 'Hardware', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Installed physical memory', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Software & processes', exact: true }).click();
